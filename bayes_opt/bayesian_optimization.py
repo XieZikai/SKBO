@@ -143,6 +143,10 @@ class BayesianOptimization(Observable):
             random_state=self._random_state
         )
 
+        # todo: debug code, delete
+        mean, std = self._gp.predict(suggestion.reshape(1, -1), return_std=True)
+        print('Mean: {}, Std: {}'.format(mean[0], std[0]))
+
         return self._space.array_to_params(suggestion)
 
     def _prime_queue(self, init_points):

@@ -9,6 +9,9 @@ from bayes_opt.event import Events, DEFAULT_EVENTS
 from bayes_opt.util import UtilityFunction, acq_max, ensure_rng
 from sklearn.gaussian_process.kernels import Matern
 
+# TODO: using RBF kernel for test
+from sklearn.gaussian_process.kernels import RBF
+
 
 import numpy as np
 from scipy.linalg import cho_solve, solve_triangular
@@ -28,7 +31,7 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
         self._queue = Queue()
 
         # Internal GP regressor
-        self._gp = SurrogateKernelGPR(
+        '''self._gp = SurrogateKernelGPR(
             custom_list=custom_list,
             kernel=Matern(nu=2.5),
             alpha=1e-6,
@@ -39,6 +42,25 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
 
         self._original_gp = GaussianProcessRegressor(
             kernel=Matern(nu=2.5),
+            alpha=1e-6,
+            normalize_y=True,
+            n_restarts_optimizer=5,
+            random_state=self._random_state,
+        )'''
+
+        # TODO: test script
+
+        self._gp = SurrogateKernelGPR(
+            custom_list=custom_list,
+            kernel=RBF(),
+            alpha=1e-6,
+            normalize_y=True,
+            n_restarts_optimizer=5,
+            random_state=self._random_state,
+        )
+
+        self._original_gp = GaussianProcessRegressor(
+            kernel=RBF(),
             alpha=1e-6,
             normalize_y=True,
             n_restarts_optimizer=5,
@@ -67,6 +89,7 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
             self._gp.fit(self._space.params, self._space.target)
             self._original_gp.fit(self._space.params, self._space.target)
             if not self.for_comparison:
+                self._gp.kernel_ = self._original_gp.kernel_
                 self._gp.kernel = self._original_gp.kernel
 
         # Finding argmax of the acquisition function.
@@ -77,6 +100,10 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
             bounds=self._space.bounds,
             random_state=self._random_state
         )
+
+        # todo: debug code, delete
+        mean, std = self._gp.predict(suggestion.reshape(1, -1), return_std=True)
+        print('Mean: {}, Std: {}'.format(mean[0], std[0]))
 
         return self._space.array_to_params(suggestion)
 
@@ -95,10 +122,12 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
     def fit(self, X, y):
         if self.custom_list is None:
             self.linear_regressor.fit(X, y)
+            # todo: should delete this to get good results
             y = y - self.linear_regressor.predict(X)
         else:
             self.linear_regressor.fit(X[:, self.custom_list], y)
-            y = self.linear_regressor.predict(X[:, self.custom_list])
+            # todo: should delete this to get good results
+            y = y - self.linear_regressor.predict(X[:, self.custom_list])
 
         super(SurrogateKernelGPR, self).fit(X, y)
 
