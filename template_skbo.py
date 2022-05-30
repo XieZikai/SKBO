@@ -89,12 +89,11 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             self._gp.fit(self._space.params, self._space.target)
-            # self._original_gp.fit(self._space.params, self._space.target)
-            # if not self.for_comparison:
-                # self._gp.kernel_ = self._original_gp.kernel_
-                # self._gp.kernel = self._original_gp.kernel
-                # self._gp.L_ = self._original_gp.L_
-
+            self._original_gp.fit(self._space.params, self._space.target)
+            if not self.for_comparison:
+                self._gp.kernel_ = self._original_gp.kernel_
+                self._gp.kernel = self._original_gp.kernel
+                self._gp.L_ = self._original_gp.L_
 
         # Finding argmax of the acquisition function.
         suggestion = acq_max(
@@ -123,19 +122,7 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
         self.linear_regressor = LinearRegression()
         self.custom_list = custom_list
 
-        self.surrogate_gpr = GaussianProcessRegressor(
-            kernel=kernel,
-            alpha=alpha,
-            optimizer=optimizer,
-            normalize_y=True,
-            n_restarts_optimizer=n_restarts_optimizer,
-            random_state=random_state,
-            copy_X_train=copy_X_train,
-        )
-
     def fit(self, X, y):
-
-        self.surrogate_gpr.fit(X, y)
 
         if self.custom_list is None:
             self.linear_regressor.fit(X, y)
@@ -302,45 +289,17 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
             # y_mean = self._y_train_std * K_trans.dot(self.alpha_) + self._y_train_mean
 
             if return_cov:
-
-                # new code
-                K_trans_surrogate = self.surrogate_gpr.kernel_(X, self.X_train_)
-                v = cho_solve((self.surrogate_gpr.L_, True), K_trans_surrogate)
-                y_cov = self.surrogate_gpr.kernel_(X) - K_trans_surrogate.dot(v)
-                y_cov = y_cov * self.surrogate_gpr._y_train_std ** 2
-                # new code
-
-                # v = cho_solve((self.L_, True), K_trans.T)  # Line 5
-                # y_cov = self.kernel_(X) - K_trans.dot(v)  # Line 6
+                v = cho_solve((self.L_, True), K_trans.T)  # Line 5
+                y_cov = self.kernel_(X) - K_trans.dot(v)  # Line 6
 
                 # undo normalisation
-                # y_cov = y_cov * self._y_train_std ** 2
+                y_cov = y_cov * self._y_train_std ** 2
 
                 return y_mean, y_cov
             elif return_std:
-
-                # new code
-
-                K_trans_surrogate = self.surrogate_gpr.kernel_(X, self.X_train_)
-                if self._K_inv is None:
-                    L_inv = solve_triangular(self.surrogate_gpr.L_.T,
-                                             np.eye(self.surrogate_gpr.L_.shape[0]))
-                    self._K_inv = L_inv.dot(L_inv.T)
-                y_var = self.surrogate_gpr.kernel_.diag(X)
-                y_var -= np.einsum("ij,ij->i",
-                                   np.dot(K_trans_surrogate, self._K_inv), K_trans_surrogate)
-                y_var_negative = y_var < 0
-                if np.any(y_var_negative):
-                    warnings.warn("Predicted variances smaller than 0. "
-                                  "Setting those variances to 0.")
-                    y_var[y_var_negative] = 0.0
-                y_var = y_var * self.surrogate_gpr._y_train_std ** 2
-
-                # new code
-
                 # cache result of K_inv computation
 
-                '''if self._K_inv is None:
+                if self._K_inv is None:
                     # compute inverse K_inv of K based on its Cholesky
                     # decomposition L and its inverse L_inv
                     L_inv = solve_triangular(self.L_.T,
@@ -361,9 +320,8 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
                     y_var[y_var_negative] = 0.0
 
                 # undo normalisation
-                y_var = y_var * self._y_train_std ** 2'''
+                y_var = y_var * self._y_train_std ** 2
 
                 return y_mean, np.sqrt(y_var)
-
             else:
                 return y_mean

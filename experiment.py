@@ -48,7 +48,7 @@ def check_model_test_problem(problem, BO, max_iter=50, save_result=True, compari
             optimizer = BO(f=problem, pbounds=problem.bound, custom_list=None, for_comparison=comparison)
             #
         # try:
-        optimizer.maximize(n_iter=100, acq=acq, kappa=kappa)
+        optimizer.maximize(n_iter=100, acq=acq, kappa=kappa, init_points=5)
         result_linear_custom = result_linear_custom.append(pd.Series(optimizer.result_dataframe), ignore_index=True)
         iter += 1
         # except:
