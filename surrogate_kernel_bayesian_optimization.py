@@ -109,6 +109,8 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
         mean, std = self._gp.predict(suggestion.reshape(1, -1), return_std=True)
         print('Mean: {}, Std: {}'.format(mean[0], std[0]))
 
+        self._gp.multiplier_change()
+
         return self._space.array_to_params(suggestion)
 
 
@@ -132,6 +134,12 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
             random_state=random_state,
             copy_X_train=copy_X_train,
         )
+
+        self.multiplier = 1
+        self._K_inv_new = None
+
+    def multiplier_change(self, decay_rate=0.05):
+        self.multiplier = max(0.0, self.multiplier-decay_rate)
 
     def fit(self, X, y):
 
@@ -237,6 +245,7 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
             self.L_ = cholesky(K, lower=True)  # Line 2
             # self.L_ changed, self._K_inv needs to be recomputed
             self._K_inv = None
+            self._K_inv_new = None
         except np.linalg.LinAlgError as exc:
             exc.args = ("The kernel, %s, is not returning a "
                         "positive definite matrix. Try gradually "
@@ -253,6 +262,8 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
             y_linear_predict = self.linear_regressor.predict(X)
         else:
             y_linear_predict = self.linear_regressor.predict(X[:, self.custom_list])
+
+        y_mean_old = self.surrogate_gpr.predict(X)
 
         # adding some manual error
 
@@ -316,25 +327,25 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
                 # undo normalisation
                 # y_cov = y_cov * self._y_train_std ** 2
 
-                return y_mean, y_cov
+                return y_mean * self.multiplier + y_mean_old * (1 - self.multiplier), y_cov
             elif return_std:
 
                 # new code
 
                 K_trans_surrogate = self.surrogate_gpr.kernel_(X, self.X_train_)
-                if self._K_inv is None:
+                if self._K_inv_new is None:
                     L_inv = solve_triangular(self.surrogate_gpr.L_.T,
                                              np.eye(self.surrogate_gpr.L_.shape[0]))
-                    self._K_inv = L_inv.dot(L_inv.T)
-                y_var = self.surrogate_gpr.kernel_.diag(X)
-                y_var -= np.einsum("ij,ij->i",
-                                   np.dot(K_trans_surrogate, self._K_inv), K_trans_surrogate)
-                y_var_negative = y_var < 0
+                    self._K_inv_new = L_inv.dot(L_inv.T)
+                y_var_new = self.surrogate_gpr.kernel_.diag(X)
+                y_var_new -= np.einsum("ij,ij->i",
+                                   np.dot(K_trans_surrogate, self._K_inv_new), K_trans_surrogate)
+                y_var_negative = y_var_new < 0
                 if np.any(y_var_negative):
                     warnings.warn("Predicted variances smaller than 0. "
                                   "Setting those variances to 0.")
-                    y_var[y_var_negative] = 0.0
-                y_var = y_var * self.surrogate_gpr._y_train_std ** 2
+                    y_var_new[y_var_negative] = 0.0
+                y_var_new = y_var_new * self.surrogate_gpr._y_train_std ** 2
 
                 # new code
 
@@ -363,7 +374,7 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
                 # undo normalisation
                 y_var = y_var * self._y_train_std ** 2'''
 
-                return y_mean, np.sqrt(y_var)
+                return y_mean * self.multiplier + y_mean_old * (1 - self.multiplier), np.sqrt(y_var_new)
 
             else:
-                return y_mean
+                return y_mean * self.multiplier + y_mean_old * (1 - self.multiplier)
