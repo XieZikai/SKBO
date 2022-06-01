@@ -21,9 +21,10 @@ from operator import itemgetter
 
 class SurrogateKernelBayesianOptimization(BayesianOptimization):
 
-    def __init__(self, f, pbounds, custom_list=None, random_state=None, verbose=2,
+    def __init__(self, f, pbounds, custom_list=None, mean_regressor=LinearRegression, random_state=None, verbose=2,
                  bounds_transformer=None, for_comparison=False):
         self._random_state = ensure_rng(random_state)
+        self.mean_regressor = mean_regressor
 
         # Data structure containing the function to be optimized, the bounds of
         # its domain, and a record of the evaluations we have done so far
@@ -75,6 +76,7 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
             self._bounds_transformer.initialize(self._space)
 
         self.result_dataframe = []
+        self.error_recorder = []
         self.for_comparison = for_comparison
 
         super(BayesianOptimization, self).__init__(events=DEFAULT_EVENTS)
@@ -94,7 +96,6 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
                 # self._gp.kernel_ = self._original_gp.kernel_
                 # self._gp.kernel = self._original_gp.kernel
                 # self._gp.L_ = self._original_gp.L_
-
 
         # Finding argmax of the acquisition function.
         suggestion = acq_max(
@@ -116,13 +117,13 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
 
 class SurrogateKernelGPR(GaussianProcessRegressor):
 
-    def __init__(self, custom_list=None, kernel=None, *, alpha=1e-10,
+    def __init__(self, mean_regressor=LinearRegression, custom_list=None, kernel=None, *, alpha=1e-10,
                  optimizer="fmin_l_bfgs_b", n_restarts_optimizer=0,
                  normalize_y=False, copy_X_train=True, random_state=None):
         super(SurrogateKernelGPR, self).__init__(kernel=kernel, alpha=alpha, optimizer=optimizer,
                                                  n_restarts_optimizer=n_restarts_optimizer, normalize_y=normalize_y,
                                                  copy_X_train=copy_X_train, random_state=random_state)
-        self.linear_regressor = LinearRegression()
+        self.mean_regressor = mean_regressor()
         self.custom_list = custom_list
 
         self.surrogate_gpr = GaussianProcessRegressor(
@@ -146,14 +147,14 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
         self.surrogate_gpr.fit(X, y)
 
         if self.custom_list is None:
-            self.linear_regressor.fit(X, y)
+            self.mean_regressor.fit(X, y)
             # todo: should delete this to get good results
-            y = y - self.linear_regressor.predict(X)
-            # y = y - self.linear_regressor.predict(X) * np.random.normal(np.ones(y.shape), 0.2)  # adding noise
+            y = y - self.mean_regressor.predict(X)
+            # y = y - self.mean_regressor.predict(X) * np.random.normal(np.ones(y.shape), 0.2)  # adding noise
         else:
-            self.linear_regressor.fit(X[:, self.custom_list], y)
+            self.mean_regressor.fit(X[:, self.custom_list], y)
             # todo: should delete this to get good results
-            y = y - self.linear_regressor.predict(X[:, self.custom_list])
+            y = y - self.mean_regressor.predict(X[:, self.custom_list])
 
         if self.kernel is None:  # Use an RBF kernel as default
             self.kernel_ = C(1.0, constant_value_bounds="fixed") \
@@ -259,9 +260,9 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
     def predict(self, X, return_std=False, return_cov=False):
 
         if self.custom_list is None:
-            y_linear_predict = self.linear_regressor.predict(X)
+            y_linear_predict = self.mean_regressor.predict(X)
         else:
-            y_linear_predict = self.linear_regressor.predict(X[:, self.custom_list])
+            y_linear_predict = self.mean_regressor.predict(X[:, self.custom_list])
 
         y_mean_old = self.surrogate_gpr.predict(X)
 
@@ -305,9 +306,12 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
             y_mean += y_linear_predict
 
             # new code:
+            # y_mean = y_linear_predict
+
+            # new code:
 
             # K_trans = self.kernel_(X, self.X_train_)
-            # alpha = cho_solve((self.L_, True), self.y_train_ - self.linear_regressor.predict(self.X_train_))
+            # alpha = cho_solve((self.L_, True), self.y_train_ - self.mean_regressor.predict(self.X_train_))
             # y_mean = (y_linear_predict + K_trans.dot(alpha)) * 0.5 + (self._y_train_std * K_trans.dot(self.alpha_) + self._y_train_mean) * 0.5
             # y_mean = y_linear_predict + (self._y_train_std * K_trans.dot(self.alpha_) + self._y_train_mean)
             # y_mean = self._y_train_std * K_trans.dot(self.alpha_) + self._y_train_mean
@@ -375,6 +379,9 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
                 y_var = y_var * self._y_train_std ** 2'''
 
                 return y_mean * self.multiplier + y_mean_old * (1 - self.multiplier), np.sqrt(y_var_new)
+                # return y_mean * self.multiplier + y_mean_old * (1 - self.multiplier), np.sqrt(y_var)
+                # return y_mean, np.sqrt(y_var)
 
             else:
                 return y_mean * self.multiplier + y_mean_old * (1 - self.multiplier)
+                # return y_linear_predict
