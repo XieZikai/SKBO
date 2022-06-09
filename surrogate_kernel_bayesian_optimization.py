@@ -22,7 +22,7 @@ from operator import itemgetter
 class SurrogateKernelBayesianOptimization(BayesianOptimization):
 
     def __init__(self, f, pbounds, custom_list=None, mean_regressor=LinearRegression, random_state=None, verbose=2,
-                 bounds_transformer=None, for_comparison=False):
+                 use_anchor=True, bounds_transformer=None, for_comparison=False):
         self._random_state = ensure_rng(random_state)
         self.mean_regressor = mean_regressor
 
@@ -78,8 +78,16 @@ class SurrogateKernelBayesianOptimization(BayesianOptimization):
         self.result_dataframe = []
         self.error_recorder = []
         self.for_comparison = for_comparison
+        self.anchor_list = []
+        self.anchor_error_recorder = []
+        self.pbounds = pbounds
+
+        if use_anchor:
+            self.random_sampling_anchor()
 
         super(BayesianOptimization, self).__init__(events=DEFAULT_EVENTS)
+
+        self.use_anchor = use_anchor
 
     def suggest(self, utility_function):
         """Most promissing point to probe next"""
@@ -308,13 +316,14 @@ class SurrogateKernelGPR(GaussianProcessRegressor):
             # new code:
             # y_mean = y_linear_predict
 
-            # new code:
+            # new code: 这个是正确的使用customized mean的后验均值
 
             # K_trans = self.kernel_(X, self.X_train_)
             # alpha = cho_solve((self.L_, True), self.y_train_ - self.mean_regressor.predict(self.X_train_))
             # y_mean = (y_linear_predict + K_trans.dot(alpha)) * 0.5 + (self._y_train_std * K_trans.dot(self.alpha_) + self._y_train_mean) * 0.5
             # y_mean = y_linear_predict + (self._y_train_std * K_trans.dot(self.alpha_) + self._y_train_mean)
             # y_mean = self._y_train_std * K_trans.dot(self.alpha_) + self._y_train_mean
+
 
             if return_cov:
 

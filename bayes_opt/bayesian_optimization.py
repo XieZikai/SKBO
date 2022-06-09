@@ -13,6 +13,7 @@ from .util import UtilityFunction, acq_max, ensure_rng
 
 from sklearn.gaussian_process.kernels import Matern
 from sklearn.gaussian_process import GaussianProcessRegressor
+import numpy as np
 
 
 class Queue:
@@ -70,7 +71,7 @@ class Observable(object):
 
 class BayesianOptimization(Observable):
     def __init__(self, f, pbounds, random_state=None, verbose=2,
-                 bounds_transformer=None):
+                 bounds_transformer=None, use_anchor=False):
         """"""
         self._random_state = ensure_rng(random_state)
 
@@ -96,7 +97,21 @@ class BayesianOptimization(Observable):
             self._bounds_transformer.initialize(self._space)
         self.result_dataframe = []
 
+        self.error_recorder = []
+        self.anchor_list = []
+        self.anchor_error_recorder = []
+        self.pbounds = pbounds
+        self.use_anchor = use_anchor
+
         super(BayesianOptimization, self).__init__(events=DEFAULT_EVENTS)
+
+    def random_sampling_anchor(self, anchor_num=50, random_seed=10):
+        np.random.seed(random_seed)
+        for _ in range(anchor_num):
+            sampling = []
+            for i in range(len(self.pbounds)):
+                sampling.append(np.random.rand() * (list(self.pbounds.values())[i][1] - list(self.pbounds.values())[i][0]))
+            self.anchor_list.append(sampling)
 
     @property
     def space(self):
@@ -194,6 +209,19 @@ class BayesianOptimization(Observable):
                 iteration += 1
 
             self.probe(x_probe, lazy=False)
+
+            if iteration > 0:
+                a = self._space.probe(x_probe)
+                b = self._gp.predict(self._space.params_to_array(x_probe).reshape(1, -1))[0]
+                self.error_recorder.append(a - b)
+            if iteration > 0 and self.use_anchor:
+                anchor_error = 0
+                for anchor in self.anchor_list:
+                    anchor = self._space.array_to_params(np.array(anchor))
+                    a = self._space.probe(anchor)
+                    b = self._gp.predict(self._space.params_to_array(anchor).reshape(1, -1))[0]
+                    anchor_error += np.abs(a-b)
+                self.anchor_error_recorder.append(anchor_error)
 
             result = self._space.probe(x_probe)
             self.result_dataframe.append(result)
