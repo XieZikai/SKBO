@@ -6,13 +6,15 @@ from bayes_opt.event import DEFAULT_EVENTS
 from bayes_opt.bayesian_optimization import BayesianOptimization, Queue, TargetSpace
 from sklearn.gaussian_process.kernels import Matern, RBF, ConstantKernel as C
 from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.utils.validation import check_array
 import numpy as np
 from scipy.linalg import cho_solve, solve_triangular
 import warnings
 
+import skopt
 
-class RFBO(BayesianOptimization):
+class GBRTBO(BayesianOptimization):
     def __init__(self, f, pbounds, random_state=None, verbose=2,
                  bounds_transformer=None, use_anchor=False):
         """"""
@@ -27,7 +29,7 @@ class RFBO(BayesianOptimization):
         kernel_length_scale = np.array([1.0 for _ in range(len(pbounds))])
 
         # Internal GP regressor
-        self._gp = RFGPR(
+        self._gp = GBRTGPR(
             kernel=Matern(nu=2.5, length_scale=kernel_length_scale),
             alpha=1e-6,
             normalize_y=True,
@@ -50,19 +52,19 @@ class RFBO(BayesianOptimization):
         super(BayesianOptimization, self).__init__(events=DEFAULT_EVENTS)
 
 
-class RFGPR(GaussianProcessRegressor):
+class GBRTGPR(GaussianProcessRegressor):
     def __init__(self, kernel=None, *, alpha=1e-10,
                  optimizer="fmin_l_bfgs_b", n_restarts_optimizer=0,
                  normalize_y=False, copy_X_train=True, random_state=None):
-        super(RFGPR, self).__init__(kernel=kernel, alpha=alpha, optimizer=optimizer,
+        super(GBRTGPR, self).__init__(kernel=kernel, alpha=alpha, optimizer=optimizer,
                                     n_restarts_optimizer=n_restarts_optimizer, normalize_y=normalize_y,
                                     copy_X_train=copy_X_train, random_state=random_state)
-        self.mean_regressor = RandomForestRegressor(max_depth=5, n_estimators=20)
+        self.mean_regressor = GradientBoostingRegressor(n_estimators=30)
 
     def fit(self, X, y):
 
         self.mean_regressor.fit(X, y)
-        super(RFGPR, self).fit(X, y)
+        super(GBRTGPR, self).fit(X, y)
 
     def predict(self, X, return_std=False, return_cov=False):
 
